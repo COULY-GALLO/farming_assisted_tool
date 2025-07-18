@@ -1,9 +1,11 @@
 import tkinter as tk
-from tkinter import simpledialog, messagebox, scrolledtext
+from tkinter import simpledialog, messagebox, scrolledtext, filedialog
 import pyautogui
 import keyboard
 import time
 import threading
+import json
+import os
 
 root = tk.Tk()
 root.title("Detector de cambio de píxel")
@@ -74,7 +76,6 @@ def agregar_zona_bucle():
     if delay_entre_acciones is None:
         return
 
-    # Pedir comandos en una ventana de texto multilinea
     ventana_cmd = tk.Toplevel(root)
     ventana_cmd.title("Comandos en bucle")
     tk.Label(ventana_cmd, text="Ingresá un comando por línea.").pack()
@@ -150,7 +151,7 @@ def ejecutar_automatizacion():
                 if solo_si_cambia.get():
                     if color_actual != zona["estado_anterior"]:
                         log(f"🌀 Cambio en ({x},{y}) de {zona['estado_anterior']} → {color_actual}")
-                        if color_actual == zona["color_objetivo"]:
+                        if color_actual == tuple(zona["color_objetivo"]):
                             for cmd in zona["comandos"]:
                                 log(f"⌨️ Ejecutando comando (cambio): {cmd}")
                                 escribir_como_teclado(cmd)
@@ -158,7 +159,7 @@ def ejecutar_automatizacion():
                             contador += 1
                         zona["estado_anterior"] = color_actual
                 else:
-                    if color_actual == zona["color_objetivo"]:
+                    if color_actual == tuple(zona["color_objetivo"]):
                         for cmd in zona["comandos"]:
                             log(f"⌨️ Ejecutando comando (igualdad): {cmd}")
                             escribir_como_teclado(cmd)
@@ -168,7 +169,7 @@ def ejecutar_automatizacion():
             for bucle in bucles:
                 x, y = bucle["x"], bucle["y"]
                 color_actual = pyautogui.pixel(x, y)
-                if color_actual == bucle["color_objetivo"]:
+                if color_actual == tuple(bucle["color_objetivo"]):
                     if not bucle["activo"]:
                         log(f"🔁 Bucle iniciado en ({x},{y})")
                         bucle["activo"] = True
@@ -195,6 +196,58 @@ def detener():
     global monitoreando
     monitoreando = False
     log("🛑 Stop solicitado.")
+
+
+def guardar_todas_las_zonas():
+    carpeta = filedialog.askopenfilename(title="Seleccionar archivo JSON con zonas", filetypes=[("JSON files", "*.json")])
+    if not carpeta:
+        return
+    try:
+        for i, zona in enumerate(zonas):
+            with open(os.path.join(carpeta, f"comand_{i+1}.json"), "w") as f:
+                json.dump(zona, f, indent=2)
+        for i, bucle in enumerate(bucles):
+            with open(os.path.join(carpeta, f"bucle_{i+1}.json"), "w") as f:
+                json.dump(bucle, f, indent=2)
+        log(f"💾 Zonas y bucles guardados en carpeta: {carpeta}")
+    except Exception as e:
+        log(f"❌ Error al guardar: {e}")
+
+
+def cargar_todas_las_zonas():
+    carpeta = filedialog.askdirectory(title="Seleccionar carpeta con zonas")
+    if not carpeta:
+        return
+    try:
+        archivos = [f for f in os.listdir(carpeta) if f.endswith(".json")]
+        cargadas = 0
+        for archivo in archivos:
+            ruta = os.path.join(carpeta, archivo)
+            with open(ruta, "r") as f:
+                datos = json.load(f)
+                if isinstance(datos, list):
+                    
+                    for item in datos:
+                        if "delay" in item:
+                            bucles.append(item)
+                            lista_zonas.insert(tk.END, f"Bucle ({item['x']},{item['y']}) mientras {tuple(item['color_objetivo'])} | CMDs:{len(item['comandos'])}")
+                        else:
+                            zonas.append(item)
+                            lista_zonas.insert(tk.END, f"Zona ({item['x']},{item['y']}) OBJ:{tuple(item['color_objetivo'])} | CMDs:{len(item['comandos'])}")
+                        cargadas += 1
+                elif isinstance(datos, dict):
+                    if "delay" in datos:
+                        bucles.append(datos)
+                        lista_zonas.insert(tk.END, f"Bucle ({datos['x']},{datos['y']}) mientras {tuple(datos['color_objetivo'])} | CMDs:{len(datos['comandos'])}")
+                    else:
+                        zonas.append(datos)
+                        lista_zonas.insert(tk.END, f"Zona ({datos['x']},{datos['y']}) OBJ:{tuple(datos['color_objetivo'])} | CMDs:{len(datos['comandos'])}")
+                    cargadas += 1
+        log(f"📂 Se cargaron {cargadas} zonas/bucles desde: {carpeta}")
+    except Exception as e:
+        log(f"❌ Error al cargar: {e}")
+
+
 
 # GUI
 btn_zona = tk.Button(root, text="Agregar zona de píxel", command=seleccionar_pixel)
@@ -232,6 +285,15 @@ btn_ejecutar.pack(pady=5)
 
 btn_stop = tk.Button(root, text="🛑 Detener", fg="white", bg="red", command=detener)
 btn_stop.pack(pady=5)
+
+frame_archivo = tk.Frame(root)
+frame_archivo.pack(pady=5)
+
+btn_guardar = tk.Button(frame_archivo, text="💾 Guardar zonas", command=guardar_todas_las_zonas)
+btn_guardar.pack(side=tk.LEFT, padx=5)
+
+btn_cargar = tk.Button(frame_archivo, text="📂 Cargar zonas", command=cargar_todas_las_zonas)
+btn_cargar.pack(side=tk.LEFT, padx=5)
 
 consola = scrolledtext.ScrolledText(root, height=10, width=80)
 consola.pack(pady=10)
